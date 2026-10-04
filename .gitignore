@@ -1,0 +1,15 @@
+.gradle/
+build/
+run/
+out/
+*.iml
+.idea/
+
+# local test modpack (344 MB of mods)
+CreateAeronautics-Full-1.21.1/
+
+# misc local artifacts
+logs/
+.freebuff/
+scripts/__pycache__/
+*.class

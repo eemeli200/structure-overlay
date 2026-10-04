@@ -1,0 +1,37 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "MIT"
+
+[[mods]]
+modId = "structureoverlay"
+version = "${version}"
+displayName = "Structure Overlay for Xaero's World Map"
+authors = "Freebuff"
+description = '''
+Adds a toggleable world map overlay that marks structure starts (villages, monuments, fortresses...)
+on Xaero's World Map, with a menu for choosing exactly which structure types are shown.
+'''
+
+[[mixins]]
+config = "structureoverlay.mixins.json"
+
+[[dependencies.structureoverlay]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1,)"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies.structureoverlay]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,1.21.2)"
+ordering = "NONE"
+side = "CLIENT"
+
+[[dependencies.structureoverlay]]
+modId = "xaeroworldmap"
+type = "required"
+versionRange = "[1.40,)"
+ordering = "AFTER"
+side = "CLIENT"

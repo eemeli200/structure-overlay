@@ -1,0 +1,103 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+version = project.mod_version
+group = project.mod_group
+
+base {
+    archivesName = project.mod_id
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+neoForge {
+    version = project.neoforge_version
+
+    // Minecraft + NeoForge are needed on the test classpath too (NBT helpers etc.)
+    addModdingDependenciesTo(sourceSets.test)
+
+    runs {
+        client {
+            client()
+            gameDirectory = project.file('run')
+            // optional verification aids: gradle runClient -PquickPlay=World -PmixinExport
+            if (project.hasProperty('quickPlay')) {
+                programArgument '--quickPlaySingleplayer'
+                programArgument project.property('quickPlay').toString()
+            }
+            if (project.hasProperty('mixinExport')) {
+                jvmArgument '-Dmixin.debug.export=true'
+            }
+        }
+        server {
+            server()
+            gameDirectory = project.file('run')
+        }
+    }
+
+    mods {
+        structureoverlay {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+repositories {
+    maven {
+        name = 'Modrinth'
+        url = 'https://api.modrinth.com/maven'
+        content {
+            includeGroup 'maven.modrinth'
+        }
+    }
+    maven {
+        name = 'Xaero'
+        url = 'https://maven.2b2t.vc/xaero'
+    }
+}
+
+dependencies {
+    compileOnly "maven.modrinth:xaeros-world-map:neoforge-${project.minecraft_version}-${project.worldmap_version}"
+    compileOnly "xaero.lib:xaerolib-neoforge-${project.minecraft_version}:${project.xaerolib_version}"
+
+    // so `gradlew runClient` actually launches the map mod this addon hooks into
+    runtimeOnly "maven.modrinth:xaeros-world-map:neoforge-${project.minecraft_version}-${project.worldmap_version}"
+    runtimeOnly "xaero.lib:xaerolib-neoforge-${project.minecraft_version}:${project.xaerolib_version}"
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+configurations {
+    // compileOnly is declarable-but-not-resolvable; this mirror is what the test task
+    // resolves to learn where the Xaero jar lives
+    xaeroContract {
+        canBeConsumed = false
+        canBeResolved = true
+    }
+}
+configurations.xaeroContract.extendsFrom(configurations.compileOnly)
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('META-INF/neoforge.mods.toml') {
+        expand version: project.version
+    }
+}
+
+tasks.named('test', Test).configure {
+    useJUnitPlatform()
+    // the Xaero contract test verifies our mixin targets against the real Xaero jar
+    dependsOn configurations.xaeroContract
+    def xaeroJar = configurations.xaeroContract.files.find {
+        it.name.startsWith('xaeros-world-map') || it.name.startsWith('xaeroworldmap')
+    }
+    systemProperty 'structureoverlay.xaeroJar', xaeroJar == null ? '' : xaeroJar.absolutePath
+}

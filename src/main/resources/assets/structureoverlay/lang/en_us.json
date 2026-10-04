@@ -1,0 +1,31 @@
+{
+  "key.categories.structureoverlay": "Structure Overlay",
+  "key.structureoverlay.menu": "Open Structure Overlay Menu",
+  "key.structureoverlay.toggle": "Toggle Structure Overlay",
+
+  "structureoverlay.map_button": "Structures",
+
+  "structureoverlay.menu.title": "Structure Overlay",
+  "structureoverlay.menu.overlay_on": "Overlay: ON",
+  "structureoverlay.menu.overlay_off": "Overlay: OFF",
+  "structureoverlay.menu.names_on": "Labels: ON",
+  "structureoverlay.menu.names_off": "Labels: OFF",
+  "structureoverlay.menu.line_on": "Line: ON",
+  "structureoverlay.menu.line_off": "Line: OFF",
+  "structureoverlay.menu.fill_on": "Fill: ON",
+  "structureoverlay.menu.fill_off": "Fill: OFF",
+  "structureoverlay.menu.rescan": "Rescan",
+  "structureoverlay.menu.all_on": "All ON",
+  "structureoverlay.menu.all_off": "All OFF",
+  "structureoverlay.menu.close": "Done",
+  "structureoverlay.menu.status.scanning": "Scanning world save... %s%%",
+  "structureoverlay.menu.status.ready": "%s structures of %s types found%s",
+  "structureoverlay.menu.status.empty": "No structures found yet - press Rescan",
+  "structureoverlay.menu.status.no_access": "No world save access (multiplayer world)",
+  "structureoverlay.menu.status.idle": "Not scanned yet - press Rescan",
+  "structureoverlay.menu.page": "Page %s/%s",
+  "structureoverlay.menu.no_structures": "No structure types discovered yet.",
+
+  "structureoverlay.toast.enabled": "Structure overlay: ON",
+  "structureoverlay.toast.disabled": "Structure overlay: OFF"
+}
