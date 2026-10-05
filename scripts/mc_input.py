@@ -12,6 +12,7 @@ Usage:
                                  prefixed combos work too: key shift+slash
   mc_input.py move <x> <y>         absolute pointer position (window relative)
   mc_input.py click <x> <y>        move + left click (window relative)
+  mc_input.py shiftclick <x> <y>   move + shift+left click (window relative)
   mc_input.py scroll <dx> <dy>     wheel ticks at current position (+ = up/right)
 """
 import ctypes
@@ -212,6 +213,20 @@ def main():
         xtst.XTestFakeButtonEvent(dpy, 1, 0, 0)
         x11.XFlush(dpy)
         time.sleep(0.3)
+    elif action == "shiftclick":
+        x, y = int(sys.argv[2]), int(sys.argv[3])
+        shiftcode = x11.XKeysymToKeycode(dpy, x11.XStringToKeysym(b"Shift_L"))
+        xtst.XTestFakeMotionEvent(dpy, -1, win_x + x, win_y + y, 0)
+        xtst.XTestFakeKeyEvent(dpy, shiftcode, 1, 0)
+        x11.XFlush(dpy)
+        time.sleep(0.3)
+        xtst.XTestFakeButtonEvent(dpy, 1, 1, 0)
+        xtst.XTestFakeButtonEvent(dpy, 1, 0, 0)
+        x11.XFlush(dpy)
+        time.sleep(0.3)
+        xtst.XTestFakeKeyEvent(dpy, shiftcode, 0, 0)
+        x11.XFlush(dpy)
+        time.sleep(0.2)
     elif action == "scroll":
         dx, dy = int(sys.argv[2]), int(sys.argv[3])
         # X11 buttons 4/5 = vertical wheel (4 = up), 6/7 = horizontal (6 = left)

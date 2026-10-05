@@ -47,6 +47,11 @@ public final class ClientEvents {
             }
         }
         while (KeyBindings.TOGGLE_OVERLAY.consumeClick()) {
+            // never while a screen is open: typing "p" in the menu's search box must not
+            // flip the overlay
+            if (mc.screen != null) {
+                continue;
+            }
             OverlayConfig cfg = OverlayConfig.get();
             cfg.enabled = !cfg.enabled;
             cfg.save();

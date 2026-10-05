@@ -2,13 +2,16 @@ package dev.xaeroaddons.structureoverlay.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import dev.xaeroaddons.structureoverlay.data.StructureColors;
 import dev.xaeroaddons.structureoverlay.data.StructureRepository;
 import java.io.Reader;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import net.neoforged.fml.loading.FMLPaths;
 import org.slf4j.Logger;
@@ -37,6 +40,15 @@ public final class OverlayConfig {
     public boolean boundsFill = true;
     /** Structure types the user turned off. */
     public Set<String> disabledStructures = new HashSet<>();
+
+    /** Menu sort mode: {@link dev.xaeroaddons.structureoverlay.data.StructureQuery#SORT_*}. */
+    public int sortMode = 0;
+    /** Footprint fill opacity in percent (menu cycles 10/20/30/50). */
+    public int fillOpacity = 20;
+    /** Marker size multiplier (menu cycles 0.5/1/1.5/2). */
+    public float markerScale = 1.0F;
+    /** User-picked colours per structure type, {@code id -> #RRGGBB}. */
+    public Map<String, String> structureColors = new HashMap<>();
 
     public static OverlayConfig get() {
         if (instance == null) {
@@ -70,6 +82,13 @@ public final class OverlayConfig {
         if (disabledStructures == null) {
             disabledStructures = new HashSet<>();
         }
+        if (structureColors == null) {
+            structureColors = new HashMap<>();
+        }
+        structureColors.entrySet().removeIf(e -> e.getKey() == null || StructureColors.parseHex(e.getValue()) == null);
+        sortMode = Math.floorMod(sortMode, 3);
+        fillOpacity = Math.max(1, Math.min(100, fillOpacity));
+        markerScale = Math.max(0.25F, Math.min(4.0F, markerScale));
     }
 
     public void save() {

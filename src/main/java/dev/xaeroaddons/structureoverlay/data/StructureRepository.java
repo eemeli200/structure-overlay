@@ -99,6 +99,18 @@ public final class StructureRepository {
         }
     }
 
+    /**
+     * Re-scan that ignores the incremental cache entirely: the persisted cache file is
+     * deleted and every region file is re-read (menu: shift-clicking "Rescan").
+     */
+    public static void forceFullRescan() {
+        Path root = worldRoot;
+        if (root != null) {
+            StructureScanner.clearCache(root);
+        }
+        rescan();
+    }
+
     private static void runScan(Path root, int myGeneration) {
         try {
             ScanResult scanned = StructureScanner.scan(
@@ -119,8 +131,9 @@ public final class StructureRepository {
             if (generation.get() == myGeneration) {
                 result = scanned;
                 status = Status.READY;
-                LOGGER.info("Structure scan finished: {} structures of {} types in {} ms",
-                    scanned.totalStructures(), scanned.counts().size(), scanned.elapsedMs());
+                LOGGER.info("Structure scan finished: {} structures of {} types in {} ms ({} region files from cache)",
+                    scanned.totalStructures(), scanned.counts().size(), scanned.elapsedMs(),
+                    scanned.reusedFiles());
             }
         } catch (Exception e) {
             LOGGER.error("Structure scan failed", e);
@@ -194,6 +207,31 @@ public final class StructureRepository {
     public static List<String> structureIds() {
         ensureFresh();
         return structureIds;
+    }
+
+    /** The raw scan result (used by the menu's CSV export). */
+    public static ScanResult currentResult() {
+        ensureFresh();
+        return result;
+    }
+
+    /**
+     * The structure closest to a point among the currently visible markers of a
+     * dimension, or {@code null} when nothing is shown there.
+     */
+    public static StructureElement nearest(ResourceLocation dimensionId, double x, double z) {
+        StructureElement closest = null;
+        double closestDistance = Double.MAX_VALUE;
+        for (StructureElement element : renderable(dimensionId)) {
+            double dx = element.x() - x;
+            double dz = element.z() - z;
+            double distance = dx * dx + dz * dz;
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closest = element;
+            }
+        }
+        return closest;
     }
 
     public static long countFor(String structureId) {

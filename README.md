@@ -7,9 +7,20 @@ screen map, with a menu for choosing exactly which structure types are shown.
 - **Menu** (default key `O`, also a *Structures* button on the Xaero map screen): master
   overlay toggle, label toggle, footprint *Line*/*Fill* toggles, rescan, and a paginated
   checklist of every structure type found in the world.
+- **Search box** in the menu: filters the type list live, matching both raw ids
+  (`village_plains`) and display names (`Simple Dungeon`).
+- **Sort modes**: by name, by how many were found, or grouped by mod/namespace.
+- **Per-type colours**: every entry shows its marker colour; shift-click a type cell to
+  re-roll the colour, ctrl+shift-click to reset it to the default derived from the id.
+  Overrides are persisted in the config (`structureColors`).
+- **Fill opacity** (10/20/30/50 %) and **marker size** (0.5x - 2x) presets.
+- **CSV export**: writes every discovered structure (dimension, id, name, coordinates,
+  footprint) to `structureoverlay-structures.csv` next to the game directory.
+- **Nearest structure** readout in the menu status line.
 - **Quick toggle** (default key `P`): turn the whole overlay on/off without opening a menu.
 - Markers are colour-coded per structure type, show the structure name (on hover, or
-  always via the *Labels* toggle) and coordinates, and are hoverable.
+  always via the *Labels* toggle) and coordinates, and are hoverable. The hover label and
+  tooltip add the distance from the player plus the footprint size.
 - Every structure's true footprint (the union of its pieces' bounding boxes read from
   the chunk data) is drawn as a translucent fill under the markers plus an outline in the
   type's colour - so big structures like ancient cities read at a glance. Both layers are
@@ -42,6 +53,12 @@ Scanning happens on a background thread when you join a world, and again via the
 **Rescan** button. Results are de-duplicated per dimension and cached until something
 changes.
 
+Scans are **incremental**: each region file's result is cached with its modification time
+and size in `<world>/structureoverlay-cache.json`, so a re-scan only re-reads the region
+files that actually changed. After a Chunky pre-generation run that turns a minutes-long
+full scan into a rescan of just the new files. Shift-clicking *Rescan* clears the cache
+and forces a full re-read.
+
 ## How the overlay is drawn
 
 The addon plugs into Xaero's own element-rendering pipeline
@@ -56,7 +73,7 @@ behave exactly like native Xaero elements. The only mixin is a small injection i
 gradle build        # or ./gradlew build once a wrapper is generated
 ```
 
-Produces `build/libs/structureoverlay-1.0.0.jar`.
+Produces `build/libs/structureoverlay-1.1.0.jar`.
 
 ### Tests
 
@@ -66,6 +83,10 @@ gradle test
 
 - `RegionChunkReaderTest` / `StructureScannerTest` round-trip synthetic `.mca` files
   (zlib/gzip/uncompressed, corrupt chunks, deduplication, multi-dimension layouts).
+- `IncrementalScanTest` proves the incremental cache: unchanged files are answered from
+  the cache, changed/deleted ones are re-read, and the cache survives a restart.
+- `StructureQueryTest` (search + sort modes), `StructureColorsTest` (colour hashing and
+  overrides) and `StructureCsvTest` (export format) cover the menu logic.
 - `XaeroContractTest` opens the real Xaero's World Map jar and asserts every mixin
   target, shadowed member and element-renderer hook this addon relies on - so an
   incompatible Xaero update fails the build instead of failing in game.

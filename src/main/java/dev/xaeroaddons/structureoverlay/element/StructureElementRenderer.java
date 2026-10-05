@@ -4,9 +4,11 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
 import dev.xaeroaddons.structureoverlay.config.OverlayConfig;
 import dev.xaeroaddons.structureoverlay.data.BlockBox;
+import dev.xaeroaddons.structureoverlay.data.StructureColors;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.texture.TextureManager;
 import xaero.map.element.MapElementRenderer;
@@ -150,10 +152,10 @@ public final class StructureElementRenderer
             // Footprint outline: at this point the pose units are logical screen pixels,
             // so block offsets convert with the map zoom (renderInfo.scale = pixels/block).
             drawBoundsOutline(element, hovered, zoom, guiGraphics);
-            float scale = Math.max(0.5F, optionalScale);
+            float scale = Math.max(0.25F, optionalScale * config.markerScale);
             pose.scale(scale, scale, 1.0F);
 
-            int fill = structureColor(element.structureId());
+            int fill = StructureColors.colorFor(element.structureId(), config.structureColors);
             if (hovered) {
                 fill = brighten(fill);
             }
@@ -169,14 +171,19 @@ public final class StructureElementRenderer
             guiGraphics.fill(-1, -1, 1, 1, 0xFFFFFFFF); // centre dot
 
             if (hovered || config.showNames) {
-                String label = element.displayName();
+                StringBuilder label = new StringBuilder(element.displayName());
                 if (hovered) {
-                    label += " [" + (int) element.x() + ", " + (int) element.z() + "]";
+                    label.append(" [").append((int) element.x()).append(", ").append((int) element.z()).append(']');
+                    Double distance = distanceToPlayer(element);
+                    if (distance != null) {
+                        label.append(' ').append(Math.round(distance)).append("m");
+                    }
                 }
-                int width = font.width(label);
+                String text = label.toString();
+                int width = font.width(text);
                 int labelY = 8;
                 guiGraphics.fill(-width / 2 - 3, labelY - 2, width / 2 + 3, labelY + font.lineHeight + 2, 0xB0000000);
-                guiGraphics.drawString(font, label, -width / 2, labelY, 0xFFFFFF, true);
+                guiGraphics.drawString(font, text, -width / 2, labelY, 0xFFFFFF, true);
             }
         } finally {
             pose.popPose();
@@ -197,8 +204,9 @@ public final class StructureElementRenderer
         try {
             pose.translate(partialX, partialY, 0.0D);
             int[] rect = rectPx(element, box, zoom);
-            int rgb = structureColor(element.structureId()) & 0xFFFFFF;
-            guiGraphics.fill(rect[0], rect[1], rect[2], rect[3], 0x30000000 | rgb);
+            int rgb = StructureColors.colorFor(element.structureId(), config.structureColors) & 0xFFFFFF;
+            int alpha = Math.max(0, Math.min(255, Math.round(config.fillOpacity * 255.0F / 100.0F)));
+            guiGraphics.fill(rect[0], rect[1], rect[2], rect[3], (alpha << 24) | rgb);
         } finally {
             pose.popPose();
         }
@@ -212,7 +220,7 @@ public final class StructureElementRenderer
         if (!config.boundsOutline || box == null || zoom <= 0.0D) {
             return;
         }
-        int color = structureColor(element.structureId());
+        int color = StructureColors.colorFor(element.structureId(), config.structureColors);
         if (hovered) {
             color = brighten(color);
         }
@@ -238,29 +246,15 @@ public final class StructureElementRenderer
         };
     }
 
-    /** Stable, readable per-structure colour derived from the id. */
-    static int structureColor(String structureId) {
-        int hue = Math.floorMod(structureId.hashCode(), 360);
-        float sector = hue / 60.0F;
-        int index = (int) sector;
-        float fraction = sector - index;
-        float r;
-        float g;
-        float b;
-        switch (index % 6) {
-            case 0 -> { r = 1; g = fraction; b = 0; }
-            case 1 -> { r = 1 - fraction; g = 1; b = 0; }
-            case 2 -> { r = 0; g = 1; b = fraction; }
-            case 3 -> { r = 0; g = 1 - fraction; b = 1; }
-            case 4 -> { r = fraction; g = 0; b = 1; }
-            default -> { r = 1; g = 0; b = 1 - fraction; }
+    /** Straight-line distance from the player to the marker, or {@code null} offline. */
+    private static Double distanceToPlayer(StructureElement element) {
+        LocalPlayer player = Minecraft.getInstance().player;
+        if (player == null) {
+            return null;
         }
-        // lift towards white so markers stay visible on dark map areas
-        r = r * 0.8F + 0.2F;
-        g = g * 0.8F + 0.2F;
-        b = b * 0.8F + 0.2F;
-        int rgb = ((int) (r * 255) << 16) | ((int) (g * 255) << 8) | (int) (b * 255);
-        return 0xFF000000 | rgb;
+        double dx = element.x() - player.getX();
+        double dz = element.z() - player.getZ();
+        return Math.sqrt(dx * dx + dz * dz);
     }
 
     private static int brighten(int argb) {

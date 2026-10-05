@@ -111,7 +111,18 @@ public final class StructureElementReader
 
     @Override
     public Tooltip getTooltip(StructureElement element, StructureElementContext context, boolean overMenu) {
-        return new Tooltip(net.minecraft.network.chat.Component.literal(
-            element.displayName() + " [" + (int) element.x() + ", " + (int) element.z() + "]"));
+        StringBuilder text = new StringBuilder(element.displayName());
+        text.append(" [").append((int) element.x()).append(", ").append((int) element.z()).append(']');
+        if (element.bounds() != null) {
+            text.append(" ").append(element.bounds().width()).append('x')
+                .append(element.bounds().depth()).append("m");
+        }
+        net.minecraft.client.player.LocalPlayer player = Minecraft.getInstance().player;
+        if (player != null) {
+            double dx = element.x() - player.getX();
+            double dz = element.z() - player.getZ();
+            text.append(" • ").append(Math.round(Math.sqrt(dx * dx + dz * dz))).append("m away");
+        }
+        return new Tooltip(net.minecraft.network.chat.Component.literal(text.toString()));
     }
 }
