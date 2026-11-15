@@ -10,6 +10,8 @@ authors = "Freebuff"
 description = '''
 Adds a toggleable world map overlay that marks structure starts (villages, monuments, fortresses...)
 on Xaero's World Map, with a menu for choosing exactly which structure types are shown.
+In multiplayer, install this on the server as well and it scans the save there and streams the
+structure list to every client that has the mod.
 '''
 
 [[mixins]]

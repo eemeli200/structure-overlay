@@ -27,13 +27,19 @@ public final class StructureRepository {
         IDLE,
         SCANNING,
         READY,
-        /** Joined a dedicated server - the world save does not exist on disk here. */
+        /** Connected to a server that runs this addon: it scans and streams the data. */
+        REMOTE,
+        /** No structure data available - logged out, or a server without the addon. */
         NO_ACCESS
     }
 
     private static volatile Status status = Status.IDLE;
     private static volatile ScanResult result = ScanResult.EMPTY;
     private static volatile Path worldRoot;
+    /** Set while structure data is arriving from a server. */
+    private static volatile StructureAccumulator remote;
+    /** True when the current state came from a server rather than a local scan. */
+    private static volatile boolean remoteSourced;
 
     private static final AtomicInteger scannedFiles = new AtomicInteger();
     private static final AtomicInteger totalFiles = new AtomicInteger();
@@ -60,13 +66,81 @@ public final class StructureRepository {
         startScan(root);
     }
 
-    /** No usable world save (logged out, or a dedicated server world we cannot read). */
+    /** No usable world save (logged out, or a server that does not provide the data). */
     public static void onWorldUnavailable(Status reason) {
         generation.incrementAndGet();
         status = reason;
         result = ScanResult.EMPTY;
         worldRoot = null;
+        remote = null;
+        remoteSourced = false;
         invalidate();
+    }
+
+    // ------------------------------------------------------------------ server-provided data
+    //
+    // On a server that runs this addon the save lives on the server, so the data arrives in
+    // pieces instead of from a local scan. Everything below is called from the client main
+    // thread by the payload handlers, in the order header -> batches -> complete.
+
+    /** A request has been sent; nothing has arrived yet. */
+    public static void onRemoteRequested() {
+        generation.incrementAndGet();
+        status = Status.REMOTE;
+        result = ScanResult.EMPTY;
+        worldRoot = null;
+        remote = null;
+        remoteSourced = true;
+        scannedFiles.set(0);
+        totalFiles.set(0);
+        invalidate();
+    }
+
+    /** The server announced the size of the incoming list. */
+    public static void onRemoteHeader(int totalInstances, int totalTypes) {
+        remote = new StructureAccumulator(totalInstances);
+        status = Status.REMOTE;
+        remoteSourced = true;
+        totalFiles.set(Math.max(0, totalInstances));
+        scannedFiles.set(0);
+        invalidate();
+    }
+
+    /** One received batch of structure starts. */
+    public static void onRemoteBatch(List<StructureInstance> instances) {
+        StructureAccumulator accumulator = remote;
+        if (accumulator == null) {
+            return; // no header yet, or a late batch after completion
+        }
+        accumulator.accept(instances);
+        scannedFiles.set((int) Math.min(Integer.MAX_VALUE, accumulator.received()));
+        invalidate();
+    }
+
+    /** The server finished the transfer; publish what was assembled. */
+    public static void onRemoteComplete(long elapsedMs, int reusedFiles) {
+        StructureAccumulator accumulator = remote;
+        if (accumulator == null) {
+            return;
+        }
+        result = accumulator.finish(elapsedMs, reusedFiles);
+        remote = null;
+        remoteSourced = true;
+        status = Status.READY;
+        LOGGER.info("Received {} structures of {} types from the server ({} ms on the server)",
+            result.totalStructures(), result.counts().size(), elapsedMs);
+        invalidate();
+    }
+
+    /** The server cannot provide structure data (no save, or its scan failed). */
+    public static void onRemoteUnavailable(String reason) {
+        LOGGER.info("Server provided no structure data ({})", reason);
+        onWorldUnavailable(Status.NO_ACCESS);
+    }
+
+    /** True when the current data came from a server rather than from a local save. */
+    public static boolean remoteSourced() {
+        return remoteSourced;
     }
 
     /** Starts (or restarts) a background scan of the given world folder. */
@@ -81,6 +155,8 @@ public final class StructureRepository {
         }
         worldRoot = root;
         status = Status.SCANNING;
+        remote = null;
+        remoteSourced = false;
         scannedFiles.set(0);
         totalFiles.set(0);
         invalidate();
@@ -250,16 +326,26 @@ public final class StructureRepository {
         return status;
     }
 
-    /** 0..100 while scanning, or -1 when no scan is running. */
+    /**
+     * 0..100 while a local scan or a server transfer is running, or -1 when neither is.
+     * Also -1 while a server transfer has not announced its size yet.
+     */
     public static int progressPercent() {
-        if (status != Status.SCANNING) {
-            return -1;
+        if (status == Status.SCANNING) {
+            int total = totalFiles.get();
+            if (total <= 0) {
+                return 0;
+            }
+            return Math.min(100, (int) (scannedFiles.get() * 100L / total));
         }
-        int total = totalFiles.get();
-        if (total <= 0) {
-            return 0;
+        if (status == Status.REMOTE) {
+            int total = totalFiles.get();
+            if (total <= 0) {
+                return -1;
+            }
+            return Math.min(100, (int) (scannedFiles.get() * 100L / total));
         }
-        return Math.min(100, (int) (scannedFiles.get() * 100L / total));
+        return -1;
     }
 
     public static int dimensionCount() {

@@ -7,6 +7,7 @@ import dev.xaeroaddons.structureoverlay.data.StructureNames;
 import dev.xaeroaddons.structureoverlay.data.StructureQuery;
 import dev.xaeroaddons.structureoverlay.data.StructureRepository;
 import dev.xaeroaddons.structureoverlay.element.StructureElement;
+import dev.xaeroaddons.structureoverlay.net.StructureNetwork;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -125,7 +126,11 @@ public final class StructureMenuScreen extends Screen {
 
         rescanButton = addRenderableWidget(Button.builder(Component.translatable("structureoverlay.menu.rescan"), b -> {
                 // shift-click: forget the incremental cache and re-read every region file
-                if (Screen.hasShiftDown()) {
+                if (StructureRepository.remoteSourced()) {
+                    // the data lives on the server - ask it to rescan instead
+                    StructureRepository.onRemoteRequested();
+                    StructureNetwork.requestFromServer(Screen.hasShiftDown());
+                } else if (Screen.hasShiftDown()) {
                     StructureRepository.forceFullRescan();
                 } else {
                     StructureRepository.rescan();
@@ -338,7 +343,9 @@ public final class StructureMenuScreen extends Screen {
             sizeButton.setMessage(sizeLabel(config.markerScale));
         }
         if (rescanButton != null) {
-            rescanButton.active = StructureRepository.status() != StructureRepository.Status.SCANNING;
+            StructureRepository.Status status = StructureRepository.status();
+            rescanButton.active = status != StructureRepository.Status.SCANNING
+                && status != StructureRepository.Status.REMOTE;
         }
         int pageCount = pageCount(visibleIds().size());
         if (previousPageButton != null) {
@@ -484,6 +491,12 @@ public final class StructureMenuScreen extends Screen {
             case SCANNING -> {
                 int percent = StructureRepository.progressPercent();
                 yield Component.translatable("structureoverlay.menu.status.scanning", percent);
+            }
+            case REMOTE -> {
+                int percent = StructureRepository.progressPercent();
+                yield percent < 0
+                    ? Component.translatable("structureoverlay.menu.status.remote")
+                    : Component.translatable("structureoverlay.menu.status.remote_progress", percent);
             }
             case NO_ACCESS -> Component.translatable("structureoverlay.menu.status.no_access");
             case READY -> StructureRepository.totalStructures() == 0

@@ -1,8 +1,13 @@
 # Structure Overlay for Xaero's World Map
 
-A client-side NeoForge addon for **Xaero's World Map** that draws a toggleable overlay of
+A NeoForge addon for **Xaero's World Map** that draws a toggleable overlay of
 **structure starts** (villages, monuments, fortresses, ancient cities, ...) on the full
 screen map, with a menu for choosing exactly which structure types are shown.
+
+In singleplayer it reads the world save directly. On a server, install it on the server as
+well and the server scans its save and streams the structure list to every client that has
+the addon; a server without it keeps working exactly as before, the overlay just has
+nothing to draw and the menu says so.
 
 - **Menu** (default key `O`, also a *Structures* button on the Xaero map screen): master
   overlay toggle, label toggle, footprint *Line*/*Fill* toggles, rescan, and a paginated
@@ -35,8 +40,9 @@ screen map, with a menu for choosing exactly which structure types are shown.
 | Xaero's World Map | 1.40+ (tested against 1.46.0) |
 | XaeroLib | (bundled with Xaero's mods) |
 
-Install this jar alongside NeoForge + Xaero's World Map. Everything runs client side;
-the mod does not need to be installed on the server.
+Install this jar alongside NeoForge + Xaero's World Map. Everything renders client side;
+installing the mod on the server is optional and only needed to make the overlay work in
+multiplayer (see [Multiplayer](#multiplayer)).
 
 ## Where the structure data comes from
 
@@ -46,8 +52,10 @@ stores them: every chunk carries a copy of each structure start inside
 (`StructureStart.save`). So:
 
 - ✅ Full-map coverage in singleplayer / LAN worlds, no matter how far you have explored.
-- ⚠️ On a dedicated server the world save does not exist on your machine, so the overlay
-  stays empty (the menu says so).
+- ✅ On a server that runs this addon: the server scans its own save and sends the result to
+  you (see [Multiplayer](#multiplayer)).
+- ⚠️ On a server without the addon the save does not exist on your machine and there is
+  nobody to ask, so the overlay stays empty (the menu says so).
 
 Scanning happens on a background thread when you join a world, and again via the
 **Rescan** button. Results are de-duplicated per dimension and cached until something
@@ -58,6 +66,33 @@ and size in `<world>/structureoverlay-cache.json`, so a re-scan only re-reads th
 files that actually changed. After a Chunky pre-generation run that turns a minutes-long
 full scan into a rescan of just the new files. Shift-clicking *Rescan* clears the cache
 and forces a full re-read.
+
+## Multiplayer
+
+Install the mod on the server as well and the overlay works there too:
+
+- The client asks the server for the structure list when it joins. The server scans its own
+  save off-thread (on a dedicated server: the `world/` folder), caches the result for the
+  life of the server process, and streams it back in batches.
+- The menu shows the transfer's progress, and the result then behaves exactly like a local
+  scan: same markers, filtering, colours, nearest readout and CSV export.
+- *Rescan* in the menu asks the server to rescan (shift-click forces a full re-read). The
+  incremental region-file cache is used on the server side, so only changed files are read.
+
+Graceful degradation, in both directions:
+
+| Server | Client | Result |
+|---|---|---|
+| no addon / vanilla | addon | Overlay empty, menu says the server has no data |
+| addon | no addon | Nothing is ever sent - the server checks that the client can receive |
+| addon | addon | Full overlay from the server's save |
+
+The payloads are registered as NeoForge *optional* payloads and every send is guarded by
+`hasChannel(...)`, so the addon never blocks a connection in either direction and a server
+without it never receives a packet it cannot decode. Wire format (protocol version `1`):
+the client sends `structures/request`, the server replies with `structures/header` (totals),
+any number of `structures/batch` payloads (up to 256 starts each), then
+`structures/complete` - or a single `structures/unavailable` when it has no readable save.
 
 ## How the overlay is drawn
 
@@ -70,10 +105,11 @@ behave exactly like native Xaero elements. The only mixin is a small injection i
 ## Building
 
 ```bash
-gradle build        # or ./gradlew build once a wrapper is generated
+./gradlew build
 ```
 
-Produces `build/libs/structureoverlay-1.1.0.jar`.
+Produces `build/libs/structureoverlay-1.2.0.jar`. The wrapper pins Gradle 8.10.2 and needs
+only a JDK 21; CI runs the same command on every push and pull request.
 
 ### Tests
 
@@ -87,6 +123,8 @@ gradle test
   the cache, changed/deleted ones are re-read, and the cache survives a restart.
 - `StructureQueryTest` (search + sort modes), `StructureColorsTest` (colour hashing and
   overrides) and `StructureCsvTest` (export format) cover the menu logic.
+- `StructureAccumulatorTest` / `StructureProtocolTest` cover the multiplayer path:
+  assembling and de-duplicating incoming batches, and codec round trips of every payload.
 - `XaeroContractTest` opens the real Xaero's World Map jar and asserts every mixin
   target, shadowed member and element-renderer hook this addon relies on - so an
   incompatible Xaero update fails the build instead of failing in game.
@@ -110,5 +148,6 @@ src/main/java/dev/xaeroaddons/structureoverlay/
   data/                           region reader, structure scanning, caching
   element/                        Xaero map-element renderer (markers + labels)
   gui/StructureMenuScreen.java    the menu
+  net/                            server <-> client sync (optional payloads, server scan)
   mixin/GuiMapMixin.java          button on Xaero's map screen
 ```
