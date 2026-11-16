@@ -106,6 +106,42 @@ the client sends `structures/request`, the server replies with `structures/heade
 any number of `structures/batch` payloads (up to 256 starts each, a few per tick), then
 `structures/complete` - or a single `structures/unavailable` when it has no readable save.
 
+### Fair-play server config
+
+A server can decide how much it reveals in `config/structureoverlay-server.json`, which is
+written with the defaults on first start:
+
+```json
+{
+  "preset": "balanced",
+  "maxDistance": null,
+  "snapTo": null,
+  "footprints": null,
+  "allowRescan": null,
+  "rescanCooldownSeconds": null,
+  "maxStructures": null,
+  "disabledTypes": []
+}
+```
+
+| Preset | Distance | Marker accuracy | Footprints | Rescan | Entries per player |
+|---|---|---|---|---|---|
+| `off` | nothing is sent, the menu says so | - | - | - | 0 |
+| `strict` | 1,500 blocks | 32-block grid | no | no | 400 |
+| `balanced` (default) | 6,000 blocks | 16-block grid | yes | 10 minute cooldown | 2,000 |
+| `full` | unlimited | exact | yes | always | unlimited |
+
+Every field can be overridden on its own, and `null` (or leaving it out) means "use the
+preset": `maxDistance` in blocks (0 = unlimited), `snapTo` in blocks (0 = exact),
+`footprints`, `allowRescan`, `rescanCooldownSeconds`, `maxStructures` (0 = unlimited) and
+`disabledTypes`, a list of structure ids such as `minecraft:ancient_city` that are never
+sent.
+
+A distance limit is measured in the dimension the player is in, and with one set no other
+dimension is sent at all. A non-zero `snapTo` rounds markers to that grid and drops the
+footprint, because the box would give the exact position away. The file is read when the
+server starts, which is also when the effective policy is logged.
+
 ## How the overlay is drawn
 
 The addon plugs into Xaero's own element-rendering pipeline

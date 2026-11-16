@@ -3,6 +3,7 @@ package dev.xaeroaddons.structureoverlay.net;
 import dev.xaeroaddons.structureoverlay.StructureOverlayMod;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 
@@ -16,6 +17,11 @@ public final class ServerLifecycle {
     @SubscribeEvent
     public static void onServerTick(ServerTickEvent.Post event) {
         ServerStructureSource.tick(event.getServer());
+    }
+
+    @SubscribeEvent
+    public static void onServerStarted(ServerStartedEvent event) {
+        ServerStructureSource.reloadConfig();
     }
 
     @SubscribeEvent

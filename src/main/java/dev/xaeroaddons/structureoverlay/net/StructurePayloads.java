@@ -149,7 +149,9 @@ public final class StructurePayloads {
             /** The server has no readable world save (e.g. it runs a proxy setup). */
             NO_SAVE,
             /** The scan threw an exception; the log on the server has the details. */
-            SCAN_FAILED
+            SCAN_FAILED,
+            /** The server's fair-play config switched structure sharing off. */
+            DISABLED
         }
 
         public static final Type<UnavailablePayload> TYPE = new Type<>(id("structures/unavailable"));

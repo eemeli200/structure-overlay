@@ -40,6 +40,7 @@
   "structureoverlay.menu.status.remote": "Requesting structure data from the server...",
   "structureoverlay.menu.status.remote_progress": "Receiving structure data from the server... %s%%",
   "structureoverlay.menu.status.no_access": "No structure data - the server does not have this mod installed",
+  "structureoverlay.menu.status.server_disabled": "No structure data - structure sharing is disabled on this server",
   "structureoverlay.menu.status.idle": "Not scanned yet - press Rescan",
   "structureoverlay.menu.page": "Page %s/%s",
   "structureoverlay.menu.no_structures": "No structure types discovered yet.",

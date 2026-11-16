@@ -40,6 +40,8 @@ public final class StructureRepository {
     private static volatile StructureAccumulator remote;
     /** True when the current state came from a server rather than a local scan. */
     private static volatile boolean remoteSourced;
+    /** Why the server sent nothing, e.g. {@code DISABLED} when its fair-play config is off. */
+    private static volatile String unavailableReason;
 
     private static final AtomicInteger scannedFiles = new AtomicInteger();
     private static final AtomicInteger totalFiles = new AtomicInteger();
@@ -74,6 +76,7 @@ public final class StructureRepository {
         worldRoot = null;
         remote = null;
         remoteSourced = false;
+        unavailableReason = null;
         invalidate();
     }
 
@@ -136,6 +139,12 @@ public final class StructureRepository {
     public static void onRemoteUnavailable(String reason) {
         LOGGER.info("Server provided no structure data ({})", reason);
         onWorldUnavailable(Status.NO_ACCESS);
+        unavailableReason = reason; // after the reset above, which clears it
+    }
+
+    /** Why the server had nothing to send, or {@code null} when it did. */
+    public static String unavailableReason() {
+        return unavailableReason;
     }
 
     /** True when the current data came from a server rather than from a local save. */

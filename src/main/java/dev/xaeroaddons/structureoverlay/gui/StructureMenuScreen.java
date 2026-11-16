@@ -498,7 +498,9 @@ public final class StructureMenuScreen extends Screen {
                     ? Component.translatable("structureoverlay.menu.status.remote")
                     : Component.translatable("structureoverlay.menu.status.remote_progress", percent);
             }
-            case NO_ACCESS -> Component.translatable("structureoverlay.menu.status.no_access");
+            case NO_ACCESS -> "DISABLED".equals(StructureRepository.unavailableReason())
+                ? Component.translatable("structureoverlay.menu.status.server_disabled")
+                : Component.translatable("structureoverlay.menu.status.no_access");
             case READY -> StructureRepository.totalStructures() == 0
                 ? Component.translatable("structureoverlay.menu.status.empty")
                 : Component.translatable("structureoverlay.menu.status.ready",

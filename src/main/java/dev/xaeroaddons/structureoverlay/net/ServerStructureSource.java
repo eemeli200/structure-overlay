@@ -41,14 +41,14 @@ final class ServerStructureSource {
     /** Uploads in flight, advanced once per server tick. */
     private static final TransferPacer PACER = new TransferPacer();
 
-    /** A finished scan, flattened into wire batches once so every request can reuse it. */
-    private record Prepared(Path root, ScanResult result, List<List<StructureInstance>> batches) {
+    /** A finished scan, flattened once so each request can filter it for one player. */
+    private record Prepared(Path root, ScanResult result, List<StructureInstance> all) {
         static Prepared of(Path root, ScanResult result) {
             List<StructureInstance> all = new ArrayList<>();
             for (List<StructureInstance> instances : result.byDimension().values()) {
                 all.addAll(instances);
             }
-            return new Prepared(root, result, StructurePayloads.partition(all, StructurePayloads.BATCH_SIZE));
+            return new Prepared(root, result, List.copyOf(all));
         }
     }
 
@@ -61,6 +61,9 @@ final class ServerStructureSource {
      */
     private static volatile boolean stopping;
 
+    /** When a client last forced a full re-read, for the rescan cooldown. */
+    private static long lastForcedScanAt;
+
     private ServerStructureSource() {
     }
 
@@ -70,14 +73,20 @@ final class ServerStructureSource {
         if (server == null) {
             return;
         }
+        ServerConfig.Policy policy = ServerConfig.get().policy();
+        if (!policy.enabled()) {
+            sendUnavailable(player, StructurePayloads.UnavailablePayload.Reason.DISABLED);
+            return;
+        }
         Path root = server.getWorldPath(LevelResource.ROOT);
         if (!Files.isDirectory(root)) {
             sendUnavailable(player, StructurePayloads.UnavailablePayload.Reason.NO_SAVE);
             return;
         }
+        boolean forceFull = full && mayForceRescan(policy);
         Prepared cachedScan = cached;
-        if (!full && cachedScan != null && cachedScan.root().equals(root)) {
-            beginUpload(player, cachedScan);
+        if (!forceFull && cachedScan != null && cachedScan.root().equals(root)) {
+            beginUpload(player, cachedScan, policy);
             return;
         }
 
@@ -88,6 +97,9 @@ final class ServerStructureSource {
             if (startScan) {
                 scanning = true;
                 stopping = false;
+                if (forceFull) {
+                    lastForcedScanAt = System.currentTimeMillis();
+                }
             }
         }
         if (!startScan) {
@@ -96,7 +108,7 @@ final class ServerStructureSource {
             return;
         }
 
-        Thread worker = new Thread(() -> scan(server, root, full), "structureoverlay-server-scan");
+        Thread worker = new Thread(() -> scan(server, root, forceFull), "structureoverlay-server-scan");
         worker.setDaemon(true);
         worker.start();
     }
@@ -124,6 +136,7 @@ final class ServerStructureSource {
     }
 
     private static void finish(MinecraftServer server, Path root, ScanResult result) {
+        ServerConfig.Policy policy = ServerConfig.get().policy();
         Prepared prepared = result == null ? null : Prepared.of(root, result);
         List<UUID> targets;
         synchronized (LOCK) {
@@ -146,7 +159,7 @@ final class ServerStructureSource {
             if (prepared == null) {
                 sendUnavailable(player, StructurePayloads.UnavailablePayload.Reason.SCAN_FAILED);
             } else {
-                beginUpload(player, prepared);
+                beginUpload(player, prepared, policy);
             }
         }
     }
@@ -155,25 +168,34 @@ final class ServerStructureSource {
      * Starts one player's transfer: the header goes out now, the batches follow one per
      * slice from {@link #tick(MinecraftServer)}.
      */
-    private static void beginUpload(ServerPlayer player, Prepared prepared) {
+    private static void beginUpload(ServerPlayer player, Prepared prepared, ServerConfig.Policy policy) {
         if (!StructureNetwork.canSendEntries(player)) {
             return;
         }
         ScanResult result = prepared.result();
-        int totalInstances = (int) Math.min(Integer.MAX_VALUE, result.totalStructures());
+        // the fair-play filter runs per request: it depends on where the player stands
+        List<StructureInstance> filtered = StructureFilter.apply(prepared.all(), policy,
+            player.level().dimension().location(), player.getX(), player.getZ());
+        Set<String> types = new HashSet<>();
+        for (StructureInstance instance : filtered) {
+            types.add(instance.structureId());
+        }
+        List<List<StructureInstance>> batches =
+            StructurePayloads.partition(filtered, StructurePayloads.BATCH_SIZE);
+        int totalInstances = filtered.size();
         int elapsedMs = (int) Math.min(Integer.MAX_VALUE, result.elapsedMs());
 
         // a rescan replaces whatever was still queued for this player
         PACER.cancel(player.getUUID());
         PacketDistributor.sendToPlayer(player,
-            new StructurePayloads.HeaderPayload(totalInstances, result.counts().size()));
+            new StructurePayloads.HeaderPayload(totalInstances, types.size()));
 
-        if (prepared.batches().isEmpty()) {
+        if (batches.isEmpty()) {
             PacketDistributor.sendToPlayer(player,
                 new StructurePayloads.CompletePayload(0, result.reusedFiles(), elapsedMs));
             return;
         }
-        PACER.enqueue(new TransferPacer.Job(player.getUUID(), prepared.batches(), totalInstances,
+        PACER.enqueue(new TransferPacer.Job(player.getUUID(), batches, totalInstances,
             result.reusedFiles(), elapsedMs));
     }
 
@@ -215,6 +237,36 @@ final class ServerStructureSource {
             cached = null;
         }
         PACER.clear();
+    }
+
+    /** Whether a client may force a re-scan right now: preset allows it and the cooldown passed. */
+    private static boolean mayForceRescan(ServerConfig.Policy policy) {
+        if (!policy.allowRescan()) {
+            return false;
+        }
+        int cooldown = policy.rescanCooldownSeconds();
+        return cooldown <= 0 || System.currentTimeMillis() - lastForcedScanAt >= cooldown * 1000L;
+    }
+
+    /** Re-reads the fair-play config and logs what it resolved to; called when a server starts. */
+    static void reloadConfig() {
+        ServerConfig.reload();
+        ServerConfig config = ServerConfig.get();
+        ServerConfig.Policy policy = config.policy();
+        if (!policy.enabled()) {
+            LOGGER.info("Structure overlay fair-play preset '{}': structure data is disabled", config.preset);
+            return;
+        }
+        LOGGER.info("Structure overlay fair-play preset '{}': distance {}, snap {}, footprints {}, rescan {}, cap {}, blocked types {}",
+            config.preset,
+            policy.maxDistance() > 0 ? policy.maxDistance() + " blocks" : "unlimited",
+            policy.snapTo() > 0 ? policy.snapTo() + " blocks" : "exact",
+            policy.footprints() ? "on" : "off",
+            policy.allowRescan()
+                ? (policy.rescanCooldownSeconds() > 0 ? policy.rescanCooldownSeconds() + " s cooldown" : "allowed")
+                : "off",
+            policy.maxStructures() > 0 ? policy.maxStructures() : "unlimited",
+            policy.disabledTypes().size());
     }
 
     private static final StructureScanner.Progress NO_PROGRESS = new StructureScanner.Progress() {
