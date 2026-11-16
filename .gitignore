@@ -21,3 +21,6 @@ scripts/__pycache__/
 /*.ppm
 /*.webp
 /*.html
+
+# Modrinth publish token, kept local
+.modrinth-token
