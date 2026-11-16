@@ -55,12 +55,11 @@ class StructureProtocolTest {
 
     @Test
     void batchPayloadRoundTrips() {
-        StructurePayloads.BatchPayload payload = new StructurePayloads.BatchPayload(7,
-            StructurePayloads.toEntries(instances(5)));
+        StructurePayloads.BatchPayload payload =
+            new StructurePayloads.BatchPayload(StructurePayloads.toEntries(instances(5)));
 
         StructurePayloads.BatchPayload decoded = roundTrip(payload, StructurePayloads.BatchPayload.STREAM_CODEC);
 
-        assertEquals(7, decoded.generation());
         assertEquals(payload.entries(), decoded.entries());
         assertEquals(StructurePayloads.toInstances(payload.entries()),
             StructurePayloads.toInstances(decoded.entries()));
@@ -72,7 +71,7 @@ class StructureProtocolTest {
             new StructurePayloads.Entry(OVERWORLD, "minecraft:monument", 3, -4, null),
             new StructurePayloads.Entry(CUSTOM, "somemod:thing", -17, 12, new BlockBox(10, 20, -30, -40)));
 
-        StructurePayloads.BatchPayload decoded = roundTrip(new StructurePayloads.BatchPayload(1, entries),
+        StructurePayloads.BatchPayload decoded = roundTrip(new StructurePayloads.BatchPayload(entries),
             StructurePayloads.BatchPayload.STREAM_CODEC);
 
         assertNull(decoded.entries().get(0).bounds());
@@ -82,14 +81,13 @@ class StructureProtocolTest {
 
     @Test
     void controlPayloadsRoundTrip() {
-        StructurePayloads.HeaderPayload header = roundTrip(new StructurePayloads.HeaderPayload(42, 1234, 9),
+        StructurePayloads.HeaderPayload header = roundTrip(new StructurePayloads.HeaderPayload(1234, 9),
             StructurePayloads.HeaderPayload.STREAM_CODEC);
-        assertEquals(42, header.generation());
         assertEquals(1234, header.totalInstances());
         assertEquals(9, header.totalTypes());
 
         StructurePayloads.CompletePayload complete = roundTrip(
-            new StructurePayloads.CompletePayload(42, 1234, 17, 5000),
+            new StructurePayloads.CompletePayload(1234, 17, 5000),
             StructurePayloads.CompletePayload.STREAM_CODEC);
         assertEquals(1234, complete.totalInstances());
         assertEquals(17, complete.reusedFiles());

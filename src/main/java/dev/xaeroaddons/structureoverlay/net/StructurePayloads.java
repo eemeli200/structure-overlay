@@ -52,15 +52,14 @@ public final class StructurePayloads {
     }
 
     /** Server -> client: how much is coming, so the menu can show progress. */
-    public record HeaderPayload(int generation, int totalInstances, int totalTypes) implements CustomPacketPayload {
+    public record HeaderPayload(int totalInstances, int totalTypes) implements CustomPacketPayload {
         public static final Type<HeaderPayload> TYPE = new Type<>(id("structures/header"));
         public static final StreamCodec<FriendlyByteBuf, HeaderPayload> STREAM_CODEC = StreamCodec.of(
             (buf, payload) -> {
-                buf.writeVarInt(payload.generation());
                 buf.writeVarInt(payload.totalInstances());
                 buf.writeVarInt(payload.totalTypes());
             },
-            buf -> new HeaderPayload(buf.readVarInt(), buf.readVarInt(), buf.readVarInt()));
+            buf -> new HeaderPayload(buf.readVarInt(), buf.readVarInt()));
 
         @Override
         public Type<? extends CustomPacketPayload> type() {
@@ -98,18 +97,16 @@ public final class StructurePayloads {
     }
 
     /** Server -> client: a slice of the structure list. */
-    public record BatchPayload(int generation, List<Entry> entries) implements CustomPacketPayload {
+    public record BatchPayload(List<Entry> entries) implements CustomPacketPayload {
         public static final Type<BatchPayload> TYPE = new Type<>(id("structures/batch"));
         public static final StreamCodec<FriendlyByteBuf, BatchPayload> STREAM_CODEC = StreamCodec.of(
             (buf, payload) -> {
-                buf.writeVarInt(payload.generation());
                 buf.writeVarInt(payload.entries().size());
                 for (Entry entry : payload.entries()) {
                     Entry.write(buf, entry);
                 }
             },
             buf -> {
-                int generation = buf.readVarInt();
                 int size = buf.readVarInt();
                 if (size < 0 || size > MAX_ENTRIES) {
                     throw new DecoderException("Invalid structure batch size: " + size);
@@ -118,7 +115,7 @@ public final class StructurePayloads {
                 for (int i = 0; i < size; i++) {
                     entries.add(Entry.read(buf));
                 }
-                return new BatchPayload(generation, List.copyOf(entries));
+                return new BatchPayload(List.copyOf(entries));
             });
 
         @Override
@@ -128,17 +125,16 @@ public final class StructurePayloads {
     }
 
     /** Server -> client: transfer finished, these totals are authoritative. */
-    public record CompletePayload(int generation, int totalInstances, int reusedFiles, int elapsedMs)
+    public record CompletePayload(int totalInstances, int reusedFiles, int elapsedMs)
         implements CustomPacketPayload {
         public static final Type<CompletePayload> TYPE = new Type<>(id("structures/complete"));
         public static final StreamCodec<FriendlyByteBuf, CompletePayload> STREAM_CODEC = StreamCodec.of(
             (buf, payload) -> {
-                buf.writeVarInt(payload.generation());
                 buf.writeVarInt(payload.totalInstances());
                 buf.writeVarInt(payload.reusedFiles());
                 buf.writeVarInt(payload.elapsedMs());
             },
-            buf -> new CompletePayload(buf.readVarInt(), buf.readVarInt(), buf.readVarInt(), buf.readVarInt()));
+            buf -> new CompletePayload(buf.readVarInt(), buf.readVarInt(), buf.readVarInt()));
 
         @Override
         public Type<? extends CustomPacketPayload> type() {

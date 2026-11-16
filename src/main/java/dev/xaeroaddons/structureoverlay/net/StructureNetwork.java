@@ -21,7 +21,11 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
  */
 @EventBusSubscriber(modid = StructureOverlayMod.MOD_ID)
 public final class StructureNetwork {
-    /** Bump when the wire format changes; mismatched peers then simply never sync. */
+    /**
+     * Wire-format version. NeoForge refuses connections whose payload versions differ, so
+     * both sides have to ship the same build - they do, this is one jar. Kept at "1"
+     * because no released build has used a different payload layout.
+     */
     public static final String PROTOCOL_VERSION = "1";
 
     private StructureNetwork() {

@@ -26,24 +26,46 @@ import org.slf4j.LoggerFactory;
  * same reply. The on-disk incremental cache of {@link StructureScanner} means a re-scan
  * after new terrain was generated only re-reads the region files that changed.
  *
+ * <p>Uploads are paced by {@link TransferPacer} from {@link #tick(MinecraftServer)}: a huge
+ * world is streamed over many ticks instead of in one, so neither the server tick nor the
+ * player's connection is flooded.
+ *
  * <p>Nothing here touches client classes, so this runs on a dedicated server.
  */
-public final class ServerStructureSource {
+final class ServerStructureSource {
     private static final Logger LOGGER = LoggerFactory.getLogger(ServerStructureSource.class);
 
     private static final Object LOCK = new Object();
     /** Players whose request is waiting for the running scan to finish. */
     private static final Set<UUID> waiting = new HashSet<>();
-    private static volatile ScanResult cached;
-    private static volatile Path cachedRoot;
+    /** Uploads in flight, advanced once per server tick. */
+    private static final TransferPacer PACER = new TransferPacer();
+
+    /** A finished scan, flattened into wire batches once so every request can reuse it. */
+    private record Prepared(Path root, ScanResult result, List<List<StructureInstance>> batches) {
+        static Prepared of(Path root, ScanResult result) {
+            List<StructureInstance> all = new ArrayList<>();
+            for (List<StructureInstance> instances : result.byDimension().values()) {
+                all.addAll(instances);
+            }
+            return new Prepared(root, result, StructurePayloads.partition(all, StructurePayloads.BATCH_SIZE));
+        }
+    }
+
+    private static volatile Prepared cached;
     private static boolean scanning;
-    private static int sendSequence;
+    /**
+     * Set while the server shuts down, so a running scan stops early. Deliberately our own
+     * flag rather than {@code MinecraftServer#isRunning()}, which reported false here even
+     * while the server was up - using it cancelled every scan before it read a single file.
+     */
+    private static volatile boolean stopping;
 
     private ServerStructureSource() {
     }
 
-    /** Handles a client request: reply from cache, or start/join a scan. */
-    public static void request(ServerPlayer player, boolean full) {
+    /** Handles a client request: answer from the cached scan, or start/join one. */
+    static void request(ServerPlayer player, boolean full) {
         MinecraftServer server = player.getServer();
         if (server == null) {
             return;
@@ -53,13 +75,10 @@ public final class ServerStructureSource {
             sendUnavailable(player, StructurePayloads.UnavailablePayload.Reason.NO_SAVE);
             return;
         }
-        if (!full) {
-            ScanResult cachedResult = cached;
-            Path cachedFrom = cachedRoot;
-            if (cachedResult != null && cachedFrom != null && cachedFrom.equals(root)) {
-                send(player, cachedResult);
-                return;
-            }
+        Prepared cachedScan = cached;
+        if (!full && cachedScan != null && cachedScan.root().equals(root)) {
+            beginUpload(player, cachedScan);
+            return;
         }
 
         boolean startScan;
@@ -68,10 +87,13 @@ public final class ServerStructureSource {
             startScan = !scanning;
             if (startScan) {
                 scanning = true;
+                stopping = false;
             }
         }
         if (!startScan) {
-            return; // the running scan answers every waiter when it finishes
+            // A scan is already running. It answers every waiter, so a "full" request that
+            // arrives now is served by it rather than queued as a second scan.
+            return;
         }
 
         Thread worker = new Thread(() -> scan(server, root, full), "structureoverlay-server-scan");
@@ -85,24 +107,31 @@ public final class ServerStructureSource {
             if (full) {
                 StructureScanner.clearCache(root);
             }
-            result = StructureScanner.scan(root, NO_PROGRESS, () -> server.isRunning());
+            result = StructureScanner.scan(root, NO_PROGRESS, () -> stopping);
         } catch (Exception e) {
             LOGGER.error("Server-side structure scan of {} failed", root, e);
         }
+        if (stopping) {
+            result = null; // shutting down; a partial result is not worth sending
+        }
         ScanResult done = result;
         // Sending must happen on the server thread.
-        server.execute(() -> finish(server, root, done));
+        try {
+            server.execute(() -> finish(server, root, done));
+        } catch (Exception e) {
+            LOGGER.debug("Could not deliver the structure scan result, server is stopping", e);
+        }
     }
 
     private static void finish(MinecraftServer server, Path root, ScanResult result) {
+        Prepared prepared = result == null ? null : Prepared.of(root, result);
         List<UUID> targets;
         synchronized (LOCK) {
             scanning = false;
             targets = new ArrayList<>(waiting);
             waiting.clear();
-            if (result != null) {
-                cached = result;
-                cachedRoot = root;
+            if (prepared != null) {
+                cached = prepared;
             }
         }
         if (result != null) {
@@ -114,33 +143,60 @@ public final class ServerStructureSource {
             if (player == null) {
                 continue; // left in the meantime
             }
-            if (result == null) {
+            if (prepared == null) {
                 sendUnavailable(player, StructurePayloads.UnavailablePayload.Reason.SCAN_FAILED);
             } else {
-                send(player, result);
+                beginUpload(player, prepared);
             }
         }
     }
 
-    /** Streams a whole scan result to one player: header, batches, completion. */
-    private static void send(ServerPlayer player, ScanResult result) {
+    /**
+     * Starts one player's transfer: the header goes out now, the batches follow one per
+     * slice from {@link #tick(MinecraftServer)}.
+     */
+    private static void beginUpload(ServerPlayer player, Prepared prepared) {
         if (!StructureNetwork.canSendEntries(player)) {
             return;
         }
-        List<StructureInstance> all = new ArrayList<>();
-        for (List<StructureInstance> instances : result.byDimension().values()) {
-            all.addAll(instances);
-        }
-        int generation = nextSequence();
+        ScanResult result = prepared.result();
+        int totalInstances = (int) Math.min(Integer.MAX_VALUE, result.totalStructures());
+        int elapsedMs = (int) Math.min(Integer.MAX_VALUE, result.elapsedMs());
+
+        // a rescan replaces whatever was still queued for this player
+        PACER.cancel(player.getUUID());
         PacketDistributor.sendToPlayer(player,
-            new StructurePayloads.HeaderPayload(generation, all.size(), result.counts().size()));
-        for (List<StructureInstance> batch : StructurePayloads.partition(all, StructurePayloads.BATCH_SIZE)) {
+            new StructurePayloads.HeaderPayload(totalInstances, result.counts().size()));
+
+        if (prepared.batches().isEmpty()) {
             PacketDistributor.sendToPlayer(player,
-                new StructurePayloads.BatchPayload(generation, StructurePayloads.toEntries(batch)));
+                new StructurePayloads.CompletePayload(0, result.reusedFiles(), elapsedMs));
+            return;
         }
-        PacketDistributor.sendToPlayer(player,
-            new StructurePayloads.CompletePayload(generation, all.size(), result.reusedFiles(),
-                (int) Math.min(Integer.MAX_VALUE, result.elapsedMs())));
+        PACER.enqueue(new TransferPacer.Job(player.getUUID(), prepared.batches(), totalInstances,
+            result.reusedFiles(), elapsedMs));
+    }
+
+    /** Called every server tick: sends the next slice of each transfer in flight. */
+    static void tick(MinecraftServer server) {
+        for (TransferPacer.Slice slice : PACER.nextTick()) {
+            ServerPlayer player = server.getPlayerList().getPlayer(slice.playerId());
+            if (player == null || !StructureNetwork.canSendEntries(player)) {
+                PACER.cancel(slice.playerId()); // gone, or no longer able to receive
+                continue;
+            }
+            TransferPacer.Job job = slice.job();
+            PacketDistributor.sendToPlayer(player,
+                new StructurePayloads.BatchPayload(StructurePayloads.toEntries(slice.batch())));
+            if (slice.last()) {
+                PacketDistributor.sendToPlayer(player,
+                    new StructurePayloads.CompletePayload(job.totalInstances(), job.reusedFiles(),
+                        job.elapsedMs()));
+                LOGGER.info("Sent {} structures to {} in {} batches over {} ticks",
+                    job.totalInstances(), player.getGameProfile().getName(),
+                    job.batchCount(), job.ticksUsed());
+            }
+        }
     }
 
     private static void sendUnavailable(ServerPlayer player, StructurePayloads.UnavailablePayload.Reason reason) {
@@ -150,18 +206,15 @@ public final class ServerStructureSource {
         PacketDistributor.sendToPlayer(player, new StructurePayloads.UnavailablePayload(reason));
     }
 
-    private static synchronized int nextSequence() {
-        return ++sendSequence;
-    }
-
-    /** Forgets the cached scan, e.g. when the server stops. */
-    public static void reset() {
+    /** Forgets the cached scan and any half-sent transfer, e.g. when the server stops. */
+    static void reset() {
         synchronized (LOCK) {
             waiting.clear();
             scanning = false;
+            stopping = true;
             cached = null;
-            cachedRoot = null;
         }
+        PACER.clear();
     }
 
     private static final StructureScanner.Progress NO_PROGRESS = new StructureScanner.Progress() {
