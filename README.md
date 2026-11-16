@@ -73,7 +73,9 @@ Install the mod on the server as well and the overlay works there too:
 
 - The client asks the server for the structure list when it joins. The server scans its own
   save off-thread (on a dedicated server: the `world/` folder), caches the result for the
-  life of the server process, and streams it back in batches.
+  life of the server process, and streams it back in batches. The upload is paced across
+  server ticks - at most four batches (1024 structures) per tick, shared round-robin
+  between players - so a huge world neither stalls a tick nor floods a connection.
 - The menu shows the transfer's progress, and the result then behaves exactly like a local
   scan: same markers, filtering, colours, nearest readout and CSV export.
 - *Rescan* in the menu asks the server to rescan (shift-click forces a full re-read). The
@@ -91,7 +93,7 @@ The payloads are registered as NeoForge *optional* payloads and every send is gu
 `hasChannel(...)`, so the addon never blocks a connection in either direction and a server
 without it never receives a packet it cannot decode. Wire format (protocol version `1`):
 the client sends `structures/request`, the server replies with `structures/header` (totals),
-any number of `structures/batch` payloads (up to 256 starts each), then
+any number of `structures/batch` payloads (up to 256 starts each, a few per tick), then
 `structures/complete` - or a single `structures/unavailable` when it has no readable save.
 
 ## How the overlay is drawn
@@ -114,7 +116,7 @@ only a JDK 21; CI runs the same command on every push and pull request.
 ### Tests
 
 ```bash
-gradle test
+./gradlew test
 ```
 
 - `RegionChunkReaderTest` / `StructureScannerTest` round-trip synthetic `.mca` files
@@ -125,6 +127,8 @@ gradle test
   overrides) and `StructureCsvTest` (export format) cover the menu logic.
 - `StructureAccumulatorTest` / `StructureProtocolTest` cover the multiplayer path:
   assembling and de-duplicating incoming batches, and codec round trips of every payload.
+- `TransferPacerTest` covers the tick pacing: the per-tick batch budget, batch ordering,
+  round-robin fairness between players, a rescan replacing a queued transfer, and cancel.
 - `XaeroContractTest` opens the real Xaero's World Map jar and asserts every mixin
   target, shadowed member and element-renderer hook this addon relies on - so an
   incompatible Xaero update fails the build instead of failing in game.
