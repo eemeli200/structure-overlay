@@ -11,8 +11,6 @@ S = 512
 
 base = Image.open(SRC).convert('RGB').resize((S, S), Image.LANCZOS)
 base.save('art/icon-exact-512.png')
-for n in (128, 64):
-    base.resize((n, n), Image.LANCZOS).save('art/icon-exact-%d-preview.png' % n)
 
 # --- ocean/land mask (the map's sea is a saturated blue) ---
 px = base.load()
@@ -65,6 +63,4 @@ for i, (x0, y0) in enumerate(chosen):
 
 out = Image.alpha_composite(base.convert('RGBA'), over).convert('RGB')
 out.save('art/icon-512.png')
-for n in (128, 64):
-    out.resize((n, n), Image.LANCZOS).save('art/icon-%d-preview.png' % n)
 print('boxes:', chosen)
