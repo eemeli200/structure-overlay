@@ -1,16 +1,11 @@
-"""Structure Overlay icon, built from the reference map render.
-
-Outputs:
-  art/icon-exact-512.png    the reference map itself, upscaled to 512 (no additions)
-  art/icon-512.png          the same map with the mod's footprint overlay on top
-"""
+"""Structure Overlay icon: the reference map render upscaled to 512 with the
+mod's structure footprints drawn over it. Writes art/icon-512.png."""
 from PIL import Image, ImageDraw
 
 SRC = '.cloud-attachments/859c0890d01eb19ed4ede7b626b85ccc65d4ceceaad575b5418d9ffad7bc95a6.webp'
 S = 512
 
 base = Image.open(SRC).convert('RGB').resize((S, S), Image.LANCZOS)
-base.save('art/icon-exact-512.png')
 
 # --- ocean/land mask (the map's sea is a saturated blue) ---
 px = base.load()
